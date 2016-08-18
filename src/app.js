@@ -1,14 +1,10 @@
 (function () {
     "use strict";
 
-    var currentItems = [];
     var itemIdCount = 0;
 
     var photoTemplate = document.getElementById("photo-template");
     var photosContainer = document.getElementById("photos-container");
-
-    fetchFeed();
-    window.setInterval(fetchFeed, 1000);
 
     function appendPhoto(feedItem) {
         var photoInstance = document.importNode(photoTemplate.content, true);
@@ -29,25 +25,70 @@
         return item1.link === item2.link;
     }
 
+    fetchFeed();
+    window.setInterval(function () {
+        itemsInDom.replaceOne();
+        if (itemBuffer.size() < 3) {
+            fetchFeed();
+        }
+    }, 3000);
+
+    var itemsInDom = {
+        maxNumberOfItems: 8,
+        items: [],
+        updateDom: function () {
+            while(this.items.length < this.maxNumberOfItems && itemBuffer.numberOfLoadedItems() > 0) {
+                var newItem = itemBuffer.dequeueItem();
+                console.log("new item", newItem)
+                this.items.unshift(newItem);
+                appendPhoto(newItem);
+            }
+        },
+        replaceOne: function () {
+            if (this.items.length > 0 && itemBuffer.numberOfLoadedItems() > 0) {
+                var toRemove = this.items.pop();
+                removePhoto(toRemove);
+                this.updateDom();
+            }
+        }
+    };
+
+    var itemBuffer = {
+        unloadedItems: [],
+        loadedItems: [],
+        enqueueItem: function (item) {
+            if (this.containsItem(item)) return;
+            this.unloadedItems.push(item);
+
+            // preload image
+            var img=new Image();
+            img.src=item.media.m;
+            img.addEventListener("load", function () {
+                itemBuffer.unloadedItems.splice(itemBuffer.unloadedItems.indexOf(item), 1);
+                itemBuffer.loadedItems.unshift(item);
+                itemsInDom.updateDom();
+            });
+        },
+        dequeueItem: function () {
+            if (this.loadedItems.length === 0) return null;
+
+            return this.loadedItems.pop();
+        },
+        containsItem: function (item) {
+            return this.unloadedItems.some(isSameItem.bind(item)) || this.loadedItems.some(isSameItem.bind(item));
+        },
+        size: function () {
+            return this.unloadedItems.length + this.loadedItems.length;
+        },
+        numberOfLoadedItems: function () {
+            return this.loadedItems.length;
+        }
+    };
+
     function handleFlickrFeed(response) {
-        var newItems = response.items.filter(function (item) {
-            return !currentItems.some(isSameItem.bind(this, item));
-        }).reverse();
-
-        var itemsToKeep = currentItems.filter(function (currentItem) {
-            return response.items.some(isSameItem.bind(this, currentItem));
+        response.items.forEach(function (item) {
+            itemBuffer.enqueueItem(item);
         });
-
-        var itemsToRemove = currentItems.filter(function (currentItem) {
-            return !response.items.some(isSameItem.bind(this, currentItem));
-        });
-
-        itemsToRemove.forEach(removePhoto);
-        newItems.forEach(appendPhoto);
-
-        console.log(newItems.length, itemsToRemove.length)
-
-        currentItems = itemsToKeep.concat(newItems);
     }
 
     function fetchFeed() {
