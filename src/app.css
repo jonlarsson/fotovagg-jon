@@ -1,0 +1,30 @@
+#photos-container {
+    display: flex;
+    align-content: center;
+    justify-content: space-around;
+    flex-wrap: wrap;
+}
+
+#photos-container > div {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 300px;
+    height: 300px;
+    overflow: hidden;
+}
+
+@media(max-width: 600px) {
+    body {
+        margin: 0;
+        padding: 0;
+    }
+    #photos-container > div {
+        height: auto;
+        width: 50%;
+    }
+}
+
+#photos-container > div > img {
+    display: block;
+}

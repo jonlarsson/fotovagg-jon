@@ -1,103 +1,124 @@
 (function () {
     "use strict";
 
-    var itemIdCount = 0;
-
-    var photoTemplate = document.getElementById("photo-template");
     var photosContainer = document.getElementById("photos-container");
 
-    function appendPhoto(feedItem) {
-        var photoInstance = document.importNode(photoTemplate.content, true);
-        var imgElement = photoInstance.querySelector("img");
-        feedItem.domId = "photo-item-" + itemIdCount++;
-        imgElement.setAttribute("id", feedItem.domId);
+    function createPhotoElement(feedItem) {
+        var divElement = document.createElement("div");
+        var imgElement = document.createElement("img");
+        divElement.appendChild(imgElement);
         imgElement.setAttribute("src", feedItem.media.m);
-        photosContainer.appendChild(photoInstance);
+        return divElement;
     }
 
-    function removePhoto(feedItem) {
-        var photoElement = document.getElementById(feedItem.domId);
-        if (photoElement)
-            photosContainer.removeChild(photoElement);
+    function appendPhoto(photoElement) {
+        photosContainer.appendChild(photoElement);
+        return photoElement;
     }
+
+    function replacePhoto(newElement, elementToReplace) {
+        photosContainer.insertBefore(newElement, elementToReplace);
+        photosContainer.removeChild(elementToReplace);
+    }
+
+    function removePhoto(elementToRemove) {
+        photosContainer.removeChild(elementToRemove);
+    }
+
+    var photosInDom = {
+        numberOfItems: 0,
+        elements: [],
+        setNumberOfItems: function (newNumber) {
+            for (var i = this.numberOfItems; i < newNumber; i++) {
+                itemBuffer.dequeueItem(function (item) {
+                    var photoElement = createPhotoElement(item);
+                    appendPhoto(photoElement);
+                    photosInDom.elements.push(photoElement);
+                });
+            }
+            this.numberOfItems = newNumber;
+            this.elements.slice(this.numberOfItems).forEach(removePhoto);
+            this.elements = this.elements.slice(0, this.numberOfItems);
+        },
+        replaceOne: function () {
+            if (this.elements.length > 0) {
+                itemBuffer.dequeueItem(function (item) {
+                    var indexToReplace = Math.floor(Math.random() * (photosInDom.elements.length - 1));
+                    var newPhotoElement = createPhotoElement(item);
+                    var toRemove = photosInDom.elements[indexToReplace];
+                    replacePhoto(newPhotoElement, toRemove);
+                    photosInDom.elements[indexToReplace] = newPhotoElement;
+                });
+            }
+        }
+    };
 
     function isSameItem(item1, item2) {
         return item1.link === item2.link;
     }
 
-    fetchFeed();
-    window.setInterval(function () {
-        itemsInDom.replaceOne();
-        if (itemBuffer.size() < 3) {
-            fetchFeed();
-        }
-    }, 3000);
-
-    var itemsInDom = {
-        maxNumberOfItems: 8,
-        items: [],
-        updateDom: function () {
-            while(this.items.length < this.maxNumberOfItems && itemBuffer.numberOfLoadedItems() > 0) {
-                var newItem = itemBuffer.dequeueItem();
-                console.log("new item", newItem)
-                this.items.unshift(newItem);
-                appendPhoto(newItem);
-            }
-        },
-        replaceOne: function () {
-            if (this.items.length > 0 && itemBuffer.numberOfLoadedItems() > 0) {
-                var toRemove = this.items.pop();
-                removePhoto(toRemove);
-                this.updateDom();
-            }
-        }
-    };
-
     var itemBuffer = {
         unloadedItems: [],
         loadedItems: [],
+        dequeueCallbacks: [],
         enqueueItem: function (item) {
             if (this.containsItem(item)) return;
             this.unloadedItems.push(item);
 
             // preload image
-            var img=new Image();
-            img.src=item.media.m;
+            var img = new Image();
+            img.src = item.media.m;
             img.addEventListener("load", function () {
                 itemBuffer.unloadedItems.splice(itemBuffer.unloadedItems.indexOf(item), 1);
                 itemBuffer.loadedItems.unshift(item);
-                itemsInDom.updateDom();
+                itemBuffer.serveDequeueCallbacks();
             });
         },
-        dequeueItem: function () {
-            if (this.loadedItems.length === 0) return null;
-
-            return this.loadedItems.pop();
+        dequeueItem: function (callback) {
+            if (this.size() < 4) {
+                fetchFeed();
+            }
+            this.dequeueCallbacks.push(callback);
+            this.serveDequeueCallbacks();
+        },
+        serveDequeueCallbacks: function () {
+            while (this.loadedItems.length > 0 && this.dequeueCallbacks.length > 0) {
+                this.dequeueCallbacks.pop()(this.loadedItems.pop());
+            }
         },
         containsItem: function (item) {
             return this.unloadedItems.some(isSameItem.bind(item)) || this.loadedItems.some(isSameItem.bind(item));
         },
         size: function () {
             return this.unloadedItems.length + this.loadedItems.length;
-        },
-        numberOfLoadedItems: function () {
-            return this.loadedItems.length;
         }
     };
 
-    function handleFlickrFeed(response) {
-        response.items.forEach(function (item) {
-            itemBuffer.enqueueItem(item);
-        });
-    }
-
     function fetchFeed() {
+        if (window.jsonFlickrFeed)
+            return;
+
         var scriptElement = document.createElement("script");
         scriptElement.src = "https://api.flickr.com/services/feeds/photos_public.gne?format=json";
         window.jsonFlickrFeed = function jsonFlickrFeed(response) {
             document.head.removeChild(scriptElement);
-            handleFlickrFeed(response);
+            response.items.forEach(function (item) {
+                itemBuffer.enqueueItem(item);
+            });
+            window.jsonFlickrFeed = null;
         };
         document.head.appendChild(scriptElement);
     }
+
+    photosInDom.setNumberOfItems(9);
+    window.setInterval(function () {
+        photosInDom.replaceOne();
+    }, 2000);
+
+    var numberOfPhotosInput = document.getElementById("number-of-photos-input");
+    numberOfPhotosInput.value = 9;
+
+    numberOfPhotosInput.addEventListener("change", function () {
+        photosInDom.setNumberOfItems(parseInt(numberOfPhotosInput.value));
+    })
 })();
